@@ -1,0 +1,144 @@
+---
+title: "Iris_Data"
+author: "Mandar Phatak"
+date: "7/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(dplyr)
+```
+
+
+```{r}
+library(mlbench)
+```
+```{r}
+data("iris")
+```
+```{r}
+glimpse(iris)
+```
+```{r}
+library(DataExplorer)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r}
+plot_missing(iris)
+```
+```{r}
+plot_correlation(iris[,1:4])
+```
+```{r}
+plot_boxplot(iris,by="Species")
+```
+```{r}
+plot_density(iris[,1:4])
+```
+```{r}
+x=iris[,1:4]
+y=iris[,5]
+```
+```{r}
+# boxplot
+# boxplot for each attribute on one image
+par(mfrow=c(1,4))
+for(i in 1:4) {
+boxplot(x[,i], main=names(iris)[i])
+}
+```
+```{r}
+plot_boxplot(iris,by="Species")
+```
+```{r}
+library(DataEditR)
+library(skimr)
+```
+```{r}
+skim(iris)
+```
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+data_edit(iris)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+# caret
+library(caret)
+# scatterplot matrix
+featurePlot(x=x, y=y, plot="ellipse")
+```
+```{r}
+# box and whisker plots for each attribute
+featurePlot(x=x, y=y, plot="box")
+```
+```{r}
+# density plots for each attribute by class value
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+featurePlot(x=x, y=y, plot="density", scales=scales)
+```
+```{r}
+# data splitting
+# create a list of 80% of the rows in the original dataset we can use for training
+validationIndex <- createDataPartition(iris$Species, p=0.80, list=FALSE)
+# select 20% of the data for validation
+validation <- iris[-validationIndex,]
+# use the remaining 80% of data to training and testing the models
+dataset <- iris[validationIndex,]
+```
+```{r}
+# Run algorithms using 10-fold cross validation
+trainControl <- trainControl(method="cv", number=10)
+metric <- "Accuracy"
+```
+```{r}
+# LDA
+set.seed(7)
+fit.lda <- train(Species~., data=dataset, method="lda", metric=metric,
+trControl=trainControl)
+# CART
+set.seed(7)
+fit.cart <- train(Species~., data=dataset, method="rpart", metric=metric,
+trControl=trainControl)
+# KNN
+set.seed(7)
+fit.knn <- train(Species~., data=dataset, method="knn", metric=metric,
+trControl=trainControl)
+# SVM
+set.seed(7)
+fit.svm <- train(Species~., data=dataset, method="svmRadial", metric=metric,
+trControl=trainControl)
+```
+```{r}
+#RandomForest
+set.seed(7)
+fit.rf <- train(Species~., data=dataset, method="rf", metric=metric, trControl=trainControl)
+```
+```{r}
+# summarize accuracy of models
+results <- resamples(list(lda=fit.lda, cart=fit.cart, knn=fit.knn, svm=fit.svm, rf=fit.rf))
+summary(results)
+```
+```{r}
+# compare accuracy of models
+dotplot(results)
+```
+```{r}
+# estimate skill of LDA on the validation dataset
+predictions <- predict(fit.lda, validation)
+confusionMatrix(predictions, validation$Species)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

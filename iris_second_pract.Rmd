@@ -1,0 +1,135 @@
+---
+title: "iris_pract2"
+author: "Mandar Phatak"
+date: "7/4/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(mlbench)
+```
+```{r}
+data("iris")
+```
+```{r}
+library(dplyr)
+```
+```{r}
+glimpse(iris)
+```
+```{r}
+library(rsample)
+# data split
+iris_split <- initial_split(iris, prop = 0.6)
+iris_split
+```
+```{r}
+iris_split %>%
+  training() %>%
+  glimpse()
+```
+```{r}
+library(tidymodels)
+```
+```{r}
+# model recipe
+iris_recipe <- training(iris_split) %>%
+  recipe(Species ~.) %>%
+  step_corr(all_predictors()) %>%
+  step_center(all_predictors(), -all_outcomes()) %>%
+  step_scale(all_predictors(), -all_outcomes()) %>%
+  prep()
+```
+```{r}
+iris_testing <- iris_recipe %>%
+  bake(testing(iris_split)) 
+```
+```{r}
+iris_training <- juice(iris_recipe)
+```
+```{r}
+# model training
+library(ranger)
+```
+```{r}
+iris_ranger <- rand_forest(trees = 100, mode = "classification") %>%
+  set_engine("ranger") %>%
+  fit(Species ~ ., data = iris_training)
+```
+```{r}
+predict(iris_ranger, iris_testing)
+```
+```{r}
+iris_ranger %>%
+  predict(iris_testing) %>%
+  bind_cols(iris_testing) %>%
+  glimpse()
+```
+```{r}
+iris_ranger %>%
+  predict(iris_testing) %>%
+  bind_cols(iris_testing) %>%
+  metrics(truth = Species, estimate = .pred_class)
+```
+```{r}
+iris_ranger %>%
+  predict(iris_testing, type = "prob") %>%
+  glimpse()
+```
+```{r}
+iris_probs <- iris_ranger %>%
+  predict(iris_testing, type = "prob") %>%
+  bind_cols(iris_testing)
+```
+```{r}
+iris_probs%>%
+  gain_curve(Species, .pred_setosa:.pred_virginica) %>%
+  glimpse()
+```
+```{r}
+iris_probs%>%
+  gain_curve(Species, .pred_setosa:.pred_virginica) %>%
+  autoplot()
+```
+```{r}
+iris_probs%>%
+  roc_curve(Species, .pred_setosa:.pred_virginica) %>%
+  autoplot()
+
+```
+```{r}
+#To measured the combined single predicted value and the probability of each possible value, combine the two prediction modes (with and without prob type).
+predict(iris_ranger, iris_testing, type = "prob") %>%
+  bind_cols(predict(iris_ranger, iris_testing)) %>%
+  bind_cols(select(iris_testing, Species)) %>%
+  glimpse()
+```
+```{r}
+predict(iris_ranger, iris_testing, type = "prob") %>%
+  bind_cols(predict(iris_ranger, iris_testing)) %>%
+  bind_cols(select(iris_testing, Species)) %>%
+  metrics(Species, .pred_setosa:.pred_virginica, estimate = .pred_class)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

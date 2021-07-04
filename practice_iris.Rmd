@@ -1,0 +1,190 @@
+---
+title: "iris_data"
+author: "Mandar Phatak"
+date: "7/2/2021"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(cache=TRUE,cache.lazy = FALSE,warning = FALSE,message=FALSE,echo = TRUE,dpi=180,fig.width = 8,fig.height = 5)
+library(tidyverse)
+library(mlbench)
+theme_set(theme_minimal())
+
+# getting the iris data
+```
+
+
+## loading the dataset
+ 
+```{r}
+data("iris")
+
+glimpse(iris)
+library(caret)
+```
+#exploring the data
+
+```{r}
+library(DataExplorer)
+plot_missing(iris)
+
+```
+```{r}
+# now we are splitting the data
+# create a list of 80% of the rows in the original dataset we can use for training
+validationIndex <- createDataPartition(iris$Species, p=0.80, list=FALSE)
+# select 20% of the data for validation
+validation <- iris[-validationIndex,]
+# use the remaining 80% of data to training and testing the models
+dataset <- iris[validationIndex,]
+```
+```{r}
+# summary of the dataset
+dim(dataset)
+```
+```{r}
+# list types for each attribute
+```
+
+
+```{r}
+sapply(dataset, class)
+
+```
+```{r}
+# take a peek at the first 5 rows of the data
+head(dataset)
+```
+```{r}
+# list the levels for the class
+levels(dataset$Species)
+```
+```{r}
+# summarize the class distribution
+percentage <- prop.table(table(dataset$Species)) * 100
+cbind(freq=table(dataset$Species), percentage=percentage)
+```
+```{r}
+#summarise the data
+summary(dataset)
+```
+```{r}
+#data visualization
+plot_boxplot(dataset,by="Species")
+
+```
+```{r}
+# another way of visualization for box-wisker plot
+par(mfrow=c(1,4))
+for(i in 1:4) {
+boxplot(dataset[,i], main=names(iris)[i])
+}
+
+```
+```{r}
+# for Speicies
+```
+
+
+```{r}
+plot(dataset[,5])
+```
+```{r}
+#scatter plot
+featurePlot(x=dataset[,1:4],y=dataset[,5],plot = "box")
+```
+```{r}
+install.packages("ellipse")
+
+```
+```{r}
+library(ellipse)
+featurePlot(x=dataset[,1:4],y=dataset[,5],plot = "ellipse")
+```
+```{r}
+plot_density(data = dataset[,1:5])
+```
+```{r}
+# using another approach
+# density plots for each attribute by class value
+x=dataset[,1:4]
+y=dataset[,5]
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+featurePlot(x=x, y=y, plot="density", scales=scales)
+```
+```{r}
+# Run algorithms using 10-fold cross validation
+trainControl <- trainControl(method="cv", number=10)
+metric <- "Accuracy"
+```
+```{r}
+# model building 
+# LDA 
+set.seed(7)
+fit.lda <- train(Species~., data=dataset, method="lda", metric=metric,
+trControl=trainControl)
+
+```
+```{r}
+# CART
+set.seed(7)
+fit.cart <- train(Species~., data=dataset, method="rpart", metric=metric,
+trControl=trainControl)
+
+
+```
+```{r}
+# KNN
+set.seed(7)
+fit.knn <- train(Species~., data=dataset, method="knn", metric=metric,
+trControl=trainControl)
+```
+```{r}
+# SVM
+set.seed(7)
+fit.svm <- train(Species~., data=dataset, method="svmRadial", metric=metric,
+trControl=trainControl)
+```
+```{r}
+# Random Forest
+set.seed(7)
+fit.rf <- train(Species~., data=dataset, method="rf", metric=metric, trControl=trainControl)
+```
+```{r}
+# summarize accuracy of models
+results <- resamples(list(lda=fit.lda, cart=fit.cart, knn=fit.knn, svm=fit.svm, rf=fit.rf))
+summary(results)
+```
+```{r}
+# compare accuracy of models
+dotplot(results)
+```
+```{r}
+# summarize Best Model
+print(fit.lda)
+```
+```{r}
+# estimate skill of LDA on the validation dataset
+predictions <- predict(fit.lda, validation)
+confusionMatrix(predictions, validation$Species)
+```
+```{r}
+
+```
+
+
+
+`
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

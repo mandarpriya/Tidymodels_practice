@@ -1,0 +1,244 @@
+---
+title: "iris_pract3"
+author: "Mandar Phatak"
+date: "7/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(mlbench)
+```
+```{r}
+data("iris")
+```
+```{r}
+library(tidyverse) # For Data wrangling
+library(tidymodels) # For modeling 
+library(furrr) # For parallel processing
+library(vip) # For variable importance
+
+library(DataExplorer) # For quick exploration
+library(skimr) # 
+```
+```{r}
+dataset<-iris
+
+skim(dataset)
+```
+```{r}
+plot_missing(dataset)
+```
+```{r}
+plot_histogram(dataset)
+```
+```{r}
+plot_correlation(dataset%>%select(-Species))
+```
+```{r}
+set.seed(111)
+splits<-initial_split(dataset,prop=0.75)
+
+splits
+```
+```{r}
+train<-training(splits)
+test<-testing(splits)
+
+cv_splits<-vfold_cv(train,v=5,strata='Species')
+
+cv_splits
+```
+```{r}
+rec<-recipe(Species~.,data=train)%>%
+    step_corr(all_predictors(),threshold = 0.9)%>%
+    step_normalize(all_numeric())
+
+rec
+```
+```{r}
+rf_spec<-rand_forest()%>%
+    set_engine("ranger")%>%
+    set_mode("classification")%>%
+    set_args(mtry=tune(),trees=tune(),min_n=tune())
+
+rf_spec
+```
+```{r}
+rf_wf<-workflow()%>%
+    add_recipe(rec)%>%
+    add_model(rf_spec)
+
+rf_wf
+```
+```{r}
+set.seed(111)
+
+tune_res<-tune_grid(
+    rf_wf,
+    resamples = cv_splits,
+    grid=20
+)
+```
+```{r}
+tune_res%>%
+    collect_metrics()%>%
+    filter(.metric=="roc_auc")%>%
+    select(mean,mtry,trees,min_n)%>%
+    pivot_longer(mtry:min_n,
+        values_to="value",
+        names_to="parameter"
+    )%>%
+    ggplot(aes(x=value,y=mean,color=parameter))+
+    geom_point(show.legend = F)+
+    facet_wrap(~parameter,scales="free_x")+
+    labs(x=NULL,y="AUC")
+```
+```{r}
+rf_grid<-grid_regular(
+    mtry(range=c(2,3)),
+    trees(range=c(1000,1500)),
+    min_n(range=c(3,10)),
+    levels = 5
+)
+
+
+rf_grid
+```
+```{r}
+tune_res2<-tune_grid(
+    rf_wf,
+    resamples = cv_splits,
+    grid=rf_grid
+)
+
+
+tune_res2
+```
+```{r}
+tune_res2%>%
+    show_best()
+```
+```{r}
+rf_best<-tune_res2%>%
+    select_best(metric="roc_auc")
+
+
+rf_best
+```
+```{r}
+rf_wf_final<-rf_wf%>%
+    finalize_workflow(rf_best)
+
+rf_wf_final
+```
+```{r}
+rf_fit<-rf_wf_final%>%
+    last_fit(split=splits)
+
+
+rf_fit%>%
+    collect_metrics()
+```
+```{r}
+rf_preds<-rf_fit%>%
+    collect_predictions()
+
+rf_preds
+```
+```{r}
+rf_preds %>% 
+    conf_mat(truth = Species, estimate = .pred_class)
+```
+```{r}
+rf_preds%>%
+    roc_curve(truth=Species,estimate=.pred_setosa:.pred_virginica)%>%
+    autoplot()
+```
+```{r}
+# working on another model
+library(glmnet)
+```
+
+```{r}
+iris %>% 
+  ggplot(aes(x = Sepal.Length, y = Sepal.Width, colour = Species)) +
+  geom_point()
+```
+```{r}
+set.seed(1) # Set a seed to get reproducible splits
+split <- rsample::initial_split(iris, strata = Species, prop = 4/5)
+train <- rsample::training(split)
+test <- rsample::testing(split)
+```
+```{r}
+rec <- recipe(Species ~ ., data = train) %>% 
+  step_center(all_predictors()) %>% 
+  step_scale(all_predictors()) %>%
+  step_corr(all_predictors())
+```
+```{r}
+model <- multinom_reg() %>% 
+  set_engine("glmnet") %>% 
+  set_args(penalty = tune(), mixture = tune())
+```
+```{r}
+wf <- workflow() %>% 
+  add_recipe(rec) %>% 
+  add_model(model)
+```
+```{r}
+cv <- rsample::vfold_cv(train, strata = Species, v = 10)
+```
+```{r}
+hyper_parameters <- tune::tune_grid(wf, resamples = cv)
+```
+```{r}
+collect_metrics(hyper_parameters)
+```
+
+```{r}
+best_hp <- select_best(hyper_parameters, metric = "roc_auc")
+```
+```{r}
+best_workflow <- tune::finalize_workflow(wf, best_hp)
+```
+```{r}
+metrics <- metric_set(accuracy, precision, f_meas)
+final_fit <- last_fit(object = best_workflow, split = split, metrics = metrics)
+```
+```{r}
+collect_metrics(final_fit)
+```
+```{r}
+best_model <- extract_model(fit(best_workflow, iris))
+```
+```{r}
+best_model
+```
+
+```
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
