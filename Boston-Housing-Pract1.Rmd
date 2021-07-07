@@ -1,0 +1,274 @@
+---
+title: "Boston-Housing"
+author: "Mandar Phatak"
+date: "7/5/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache.lazy = FALSE,warning = FALSE,message = FALSE,dpi = 180,fig.width = 8,fig.height = 5)
+```
+```{r}
+library(mlbench)
+```
+```{r}
+library(caret)
+```
+```{r}
+data("BostonHousing")
+```
+```{r}
+library(dplyr)
+```
+```{r}
+glimpse(BostonHousing)
+```
+```{r}
+library(corrplot)
+```
+```{r}
+library(caret)
+```
+```{r}
+data(BostonHousing)
+```
+```{r}
+BostonHousing
+```
+```{r}
+# another way of seeing the same in a better way is using DataEditR
+library(DataEditR)
+data_edit(BostonHousing)
+```
+```{r}
+library(skimr)
+skim(BostonHousing)
+```
+```{r}
+library(DataExplorer)
+
+```
+```{r}
+plot_missing(BostonHousing) #no data missing
+```
+```{r}
+#randomly divide the data into training and test sets (stratified by the response variable )
+# Split out validation dataset
+# create a list of 80% of the rows in the original dataset we can use for training
+set.seed(7)
+validationIndex <- createDataPartition(BostonHousing$medv, p=0.80, list=FALSE)
+# select 20% of the data for validation
+validation <- BostonHousing[-validationIndex,]
+# use the remaining 80% of data to training and testing the models
+dataset <- BostonHousing[validationIndex,]
+```
+```{r}
+dim(dataset)
+```
+```{r}
+summary(dataset) # we see tha chas is factor variable 
+summary(dataset$chas)# not balanced so if we convert it to numeric
+dataset[,4]<-as.numeric(as.character(dataset[,4]))
+```
+```{r}
+cor(dataset[,1:13]) # shows many variables having significant correlation
+```
+```{r}
+# using DataExplorer 
+plot_correlation(dataset)
+```
+```{r}
+# histograms each attribute
+par(mfrow=c(3,7))
+for(i in 1:13) {
+hist(dataset[,i], main=names(dataset)[i])
+}
+```
+```{r}
+ 
+# boxplots for each attribute
+par(mfrow=c(2,7))
+for(i in 1:13) {
+boxplot(dataset[,i], main=names(dataset)[i])
+}
+```
+```{r}
+# scatterplot matrix
+pairs(dataset[,1:13])
+```
+```{r}
+# correlation plot
+correlations <- cor(dataset[,1:13])
+corrplot(correlations, method="circle")
+```
+```{r}
+# fitting the models 
+# LM linear regression
+# Run algorithms using 10-fold cross validation
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=5)
+metric <- "RMSE"
+set.seed(7)
+fit.lm <- train(medv~., data=dataset, method="lm", metric=metric, preProc=c("center",
+"scale"), trControl=trainControl)
+```
+```{r}
+# GLM
+set.seed(7)
+fit.glm <- train(medv~., data=dataset, method="glm", metric=metric, preProc=c("center",
+"scale"), trControl=trainControl)
+```
+```{r}
+
+# GLMNET
+library(glmnet)
+set.seed(7)
+fit.glmnet <- train(medv~., data=dataset, method="glmnet", metric=metric,
+preProc=c("center", "scale"), trControl=trainControl)
+```
+```{r}
+# SVM support vector machines
+set.seed(7)
+fit.svm <- train(medv~., data=dataset, method="svmRadial", metric=metric,
+preProc=c("center", "scale"), trControl=trainControl)
+```
+```{r}
+# CART Classification and Regression Trees
+set.seed(7)
+grid <- expand.grid(.cp=c(0, 0.05, 0.1))
+fit.cart <- train(medv~., data=dataset, method="rpart", metric=metric, tuneGrid=grid,
+preProc=c("center", "scale"), trControl=trainControl)
+```
+```{r}
+# KNN  
+set.seed(7)
+fit.knn <- train(medv~., data=dataset, method="knn", metric=metric, preProc=c("center",
+"scale"), trControl=trainControl)
+```
+```{r}
+# now lets compare the models
+# Compare algorithms
+transformResults <- resamples(list(LM=fit.lm, GLM=fit.glm, GLMNET=fit.glmnet, SVM=fit.svm,
+CART=fit.cart, KNN=fit.knn))
+summary(transformResults)
+dotplot(transformResults)
+```
+```{r}
+#focusing on 
+print(fit.svm)
+```
+```{r}
+# lets tune the SVM model
+# tune SVM sigma and C parametres
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=5)
+metric <- "RMSE"
+set.seed(7)
+grid <- expand.grid(.sigma=c(0.025, 0.05, 0.1, 0.15), .C=seq(1, 10, by=1))
+fit.svm <- train(medv~., data=dataset, method="svmRadial", metric=metric, tuneGrid=grid,
+preProc=c("BoxCox"), trControl=trainControl)
+print(fit.svm)
+plot(fit.svm)
+```
+```{r}
+# lets try some ensemble models for reducing the RMSE
+# try ensembles
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=5)
+metric <- "RMSE"
+
+```
+```{r}
+# Random Forest
+set.seed(1234)
+fit.rf <- train(medv~., data=dataset, method="rf", metric=metric, preProc=c("BoxCox"),
+trControl=trainControl)
+
+```
+```{r}
+# Stochastic Gradient Boosting
+set.seed(1234)
+fit.gbm <- train(medv~., data=dataset, method="gbm", metric=metric, preProc=c("BoxCox"),
+trControl=trainControl, verbose=FALSE)
+```
+```{r}
+# Cubist
+set.seed(1234)
+fit.cubist <- train(medv~., data=dataset, method="cubist", metric=metric,
+preProc=c("BoxCox"), trControl=trainControl)
+```
+```{r}
+# Compare algorithms
+ensembleResults <- resamples(list(RF=fit.rf, GBM=fit.gbm, CUBIST=fit.cubist))
+summary(ensembleResults)
+dotplot(ensembleResults)
+```
+```{r}
+# we see that Cubist model is better in comparison 
+# lets see what we can get from the cubist
+# look at parameters used for Cubist
+print(fit.cubist)
+```
+```{r}
+# lets tune the Cubist model
+# Tune the Cubist algorithm
+trainControl <- trainControl(method="repeatedcv", number=10, repeats=5)
+metric <- "RMSE"
+set.seed(7)
+grid <- expand.grid(.committees=seq(15, 30, by=1), .neighbors=c(3, 5, 7))
+tune.cubist <- train(medv~., data=dataset, method="cubist", metric=metric,
+preProc=c("BoxCox"), tuneGrid=grid, trControl=trainControl)
+print(tune.cubist)
+plot(tune.cubist)
+```
+```{r}
+# right now the focus is on Cubist model
+# we can also focus on tuning GBM model  for the time being Cubist
+library(Cubist)
+# prepare the data transform using training data
+set.seed(7)
+x <- dataset[,1:13]
+y <- dataset[,14]
+preprocessParams <- preProcess(x, method=c("BoxCox"))
+transX <- predict(preprocessParams, x)
+# train the final model
+finalModel <- cubist(x=transX, y=y, committees=29)
+summary(finalModel)
+```
+```{r}
+# transform the validation dataset
+set.seed(7)
+valX <- validation[,1:13]
+trans_valX <- predict(preprocessParams, valX)
+valY <- validation[,14]
+# use final model to make predictions on the validation dataset
+predictions <- predict(finalModel, newdata=trans_valX, neighbors=3)
+# calculate RMSE
+rmse <- RMSE(predictions, valY)
+r2 <- R2(predictions, valY)
+print(rmse)
+```
+```{r,BostonHousing}
+
+```
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r }
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

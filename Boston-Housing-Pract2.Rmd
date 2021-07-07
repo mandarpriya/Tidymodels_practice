@@ -1,0 +1,176 @@
+---
+title: "Boston-Housing-Pract2"
+author: "Mandar Phatak"
+date: "7/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,cache.lazy = FALSE,warning = FALSE,
+                      message = FALSE,dpi = 180,fig.width = 8,fig.height = 5)
+```
+```{r}
+library(tidyverse)
+theme_set(theme_minimal())
+```
+```{r}
+library(mlbench)
+library(hrbrthemes)
+```
+```{r}
+data(BostonHousing)
+```
+```{r}
+glimpse(BostonHousing)
+```
+```{r}
+library(caret)
+library(xgboost)
+library(ranger)
+```
+```{r}
+set.seed(42)
+```
+```{r}
+library(rsample)
+boston_split <- BostonHousing %>% 
+  initial_split(prop = .8)
+```
+```{r}
+train_tbl <- training(boston_split)
+test_tbl <- testing(boston_split)
+```
+```{r}
+library(tidymodels)
+```
+
+
+```{r}
+folds <- vfold_cv(train_tbl,repeats = 5)
+```
+```{r}
+rec_obj <- train_tbl %>% 
+  recipe(medv ~ .) %>%
+  step_center(all_numeric(), -all_outcomes()) %>%
+  step_scale(all_numeric(), -all_outcomes()) %>%
+  step_corr(all_numeric(), -all_outcomes()) %>% 
+  prep(data = train_tbl)
+```
+```{r}
+rec_obj %>%
+  prep(train_tbl) %>%
+  juice()
+```
+```{r}
+#RandomForest using ranger package
+rf_model <- rand_forest() %>%
+  set_args(mtry = tune(), trees = tune()) %>%
+  set_engine("ranger", importance = "impurity") %>%
+  set_mode("regression") 
+```
+```{r}
+#workflow
+rf_workflow <- workflow() %>%
+  add_recipe(rec_obj) %>%
+  add_model(rf_model)
+```
+```{r}
+rf_grid <- expand.grid(mtry  = 1:10, 
+                       trees = c(250, 500, 750))
+```
+```{r}
+rf_tune <- rf_workflow %>%
+  tune_grid(resamples = folds,
+            grid      = rf_grid,
+            metrics   = metric_set(rmse, rsq))
+```
+```{r}
+rf_tune %>% 
+  collect_metrics() %>% 
+  filter(.metric == "rmse") %>% 
+  mutate_at("trees", as.factor) %>% 
+  ggplot(aes(mtry, mean, color = trees)) +
+  geom_point(alpha = .7) +
+  geom_line() +
+      theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  scale_x_continuous(n.breaks = 10)
+```
+```{r}
+rf_param <- rf_tune %>%
+  select_best(metric = "rmse")
+```
+```{r}
+rf_param
+```
+```{r}
+rf_workflow <- rf_workflow %>%
+  finalize_workflow(rf_param)
+```
+```{r}
+rf_fit <- rf_workflow %>%
+  last_fit(boston_split)
+```
+```{r}
+rf_fit %>% 
+  collect_metrics()
+```
+```{r}
+rf_fit %>% 
+  collect_predictions()
+```
+```{r}
+rf_fit %>% 
+  collect_predictions() %>% 
+  ggplot(aes(medv, medv - .pred)) +
+  geom_point(alpha = .7) +
+    geom_abline(intercept = 0, slope = 0, linetype = "dashed") +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+```
+```{r}
+rf_fin <- rf_workflow %>% 
+  fit(BostonHousing)
+```
+```{r}
+rf_obj <- pull_workflow_fit(rf_fin)$fit
+```
+```{r}
+tibble(var = rf_obj$variable.importance,
+       nam = rf_obj$variable.importance %>% names(),
+       ) %>% 
+  ggplot(aes(var, reorder(nam, var))) +
+  geom_bar(stat  = 'identity', 
+           alpha = .7, 
+           width = .8
+           ) +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        axis.text.x = element_blank()
+        )
+```
+```{r}
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
