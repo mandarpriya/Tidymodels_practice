@@ -1,0 +1,205 @@
+---
+title: "Breast_Cancer"
+author: "Mandar Phatak"
+date: "7/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE, message = FALSE, 
+                       fig.width = 8, fig.height = 5)
+```
+```{r}
+library(scales)
+library(tidyverse)
+```
+```{r}
+library(mlbench)
+```
+```{r}
+data("BreastCancer")
+```
+```{r}
+# data exploration(EDA)  
+# using library skimr, we are able to get many things in one step. 
+
+library(skimr)
+skim(BreastCancer) # we observe that missing data is there in Bare.nuclei and its 16 values. 
+```
+```{r}
+# another EDA using DataEXplorer
+library(DataExplorer)
+plot_missing(BreastCancer) # 2.29% of the data is missing so may be it is better to impute 
+```
+```{r}
+# lets go for some preprocessing -
+#step1 - removing Id variable
+BreastCancer <-BreastCancer %>% select(-Id) 
+```
+```{r}
+# step2 converting to numeric 
+BreastCancer<-BreastCancer %>% mutate_at(vars(!matches("Class")),as.numeric)
+```
+```{r}
+# some more EDa
+plot_correlation(BreastCancer[,1:9])
+
+```
+```{r}
+# density plot
+par(mfrow=c(3,3))
+complete_cases<-complete.cases(BreastCancer)
+for(i in 1:9){
+  plot(density(BreastCancer[complete_cases,i]),main=names(BreastCancer)[i])
+}
+
+```
+```{r}
+par(mfrow=c(3,3))
+for(i in 1:9){
+  hist(BreastCancer[,i],main=names(BreastCancer)[i])
+}
+
+```
+```{r}
+# lets try to see the Class variable
+table(BreastCancer$Class)
+round(prop.table(table(BreastCancer$Class)),2)
+```
+```{r}
+# difference in the Class data for the types so we are dealing with unbalanced Classification
+
+library(rsample)
+set.seed(1234)
+Cancer_split<-initial_split(BreastCancer,prop = 0.75)
+Cancer_split
+```
+```{r}
+# train and test data
+train_data<-training(Cancer_split)
+test_data<-testing(Cancer_split)
+#crossvalidation
+Cancer_cv<-vfold_cv(train_data,v=10, repeats =5)
+
+
+```
+```{r}
+library(tidymodels)
+# setting the recipe for the model
+Cancer_recipe<- train_data %>%
+  recipe(Class~.)%>%
+  step_bagimpute(Bare.nuclei,-all_outcomes())%>%
+  step_center(all_predictors(),-all_outcomes())%>%
+  step_scale(all_predictors(),-all_outcomes())%>%
+  step_zv(all_predictors(),-all_outcomes())%>%
+  step_nzv(all_predictors(),-all_outcomes())%>%
+  step_corr(all_numeric(),threshold = 0.9)%>%
+  step_BoxCox(all_predictors(),-all_outcomes())
+  
+```
+```{r}
+# prep and juice 
+Cancer_recipe %>% prep(train_data)%>%juice()
+
+
+```
+```{r}
+# set up of model 
+# randomForest model
+library(ranger)
+rf_model<-rand_forest()%>%
+  set_args(mtry=tune(),trees=tune())%>%
+  set_engine("ranger",importance="impurity")%>%
+  set_mode("classification")
+```
+```{r}
+# workflow 
+rf_workflow <- workflow() %>%
+  add_recipe(Cancer_recipe) %>%
+  add_model(rf_model)
+```
+```{r}
+# tune the model
+rf_grid <- expand.grid(mtry  = 1:8, 
+                       trees = c(250, 500, 750,1000))
+rf_tune <- rf_workflow %>%
+  tune_grid(resamples = Cancer_cv,
+            grid      = rf_grid,
+            metrics   = metric_set(accuracy,roc_auc))
+
+```
+```{r}
+rf_tune
+
+```
+```{r}
+
+rf_tune %>% 
+  collect_metrics()
+ 
+```
+```{r}
+# selecting the best 
+param_final <- rf_tune %>%
+  select_best(metric = "accuracy")
+param_final
+```
+```{r}
+library(tune)
+rf_workflow <- rf_workflow %>%
+  finalize_workflow(param_final)
+```
+```{r}
+rf_fit <- rf_workflow %>%
+  # fit on the training set and evaluate on test set
+  last_fit(Cancer_split)
+```
+```{r}
+
+rf_fit
+```
+```{r}
+test_performance <- rf_fit %>% collect_metrics()
+
+test_performance
+```
+```{r}
+# generate predictions from the test set
+test_predictions <- rf_fit %>% collect_predictions()
+test_predictions
+```
+```{r}
+# generate a confusion matrix
+test_predictions %>% 
+  conf_mat(truth = Class, estimate = .pred_class)
+```
+```{r}
+library(ggplot2)
+test_predictions %>% ggplot()+geom_density(aes(x=.pred_malignant,fill=Class),alpha=0.5)
+```
+```{r}
+test_predictions <- rf_fit %>% pull(.predictions)
+test_predictions
+```
+```{r}
+final_model <- fit(rf_workflow, BreastCancer)
+```
+```{r}
+final_model
+```
+```{r}
+#Variable of importance
+ranger_obj <- pull_workflow_fit(final_model)$fit
+ranger_obj
+```
+```{r}
+ranger_obj$variable.importance
+```
+```{r}
+sessionInfo()
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
