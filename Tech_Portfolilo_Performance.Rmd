@@ -1,0 +1,384 @@
+---
+title: "Assets_Performance Various Sectors"
+author: "Mandar"
+date: "2022-08-02"
+output:
+  html_document:
+    code_folding: show
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: flatly
+    toc: yes
+    toc_depth: 2
+    
+---
+
+```{r}
+knitr::opts_chunk$set(
+    echo = FALSE,
+    message = FALSE,
+    warning = FALSE,
+    out.width = "200%",
+    out.height = "500px",
+    fig.pos = "center",
+    dpi = 300)
+```
+
+
+```{r}
+# Loading the libraries
+
+library(tidyverse)
+library(lubridate)
+library(tidyquant)
+library(plotly)
+library(broom)
+library(skimr)
+library(DataExplorer)
+
+```
+# Getting the data for IT/TECH sector
+## We need those companies , which have been listed before 1990.
+
+```{r}
+symbols_tech <- c("AAPL","IBM","MSFT","ORCL","ADBE")
+
+Tech_Prices <- symbols_tech %>%
+    tq_get(get = "stock.prices", from = "1990-01-01") 
+
+returns_tech <- Tech_Prices %>%
+    group_by(symbol) %>%
+    select(symbol, date, adjusted) %>%
+    tq_transmute(select     = adjusted,
+                 mutate_fun = periodReturn,
+                 period     = "monthly",
+                 col_rename = "Tech") %>%
+    ungroup() %>%
+    mutate(date = rollback(date, roll_to_first = TRUE))
+
+end_date <-  last(returns_tech)
+
+
+```
+# Visualization
+
+```{r}
+returns_tech %>%
+    ggplot(aes(x= Tech)) +
+    geom_density(aes(colour = symbol), alpha = 1) +
+    geom_histogram(aes(fill = symbol), alpha = 0.45, binwidth = .005) +
+    guides(colour = FALSE) +
+    theme_tq() + labs(
+        title = "Spread of  Returns for selected Tech Stocks",
+        subtitle = "Top Tech Stocks Monthly Returns from 1990:2022"
+        
+    ) + ylab("Count") +xlab("Monthly_Returns") + theme(legend.position = "none") +
+    facet_wrap(~ symbol) +
+    scale_y_continuous() + scale_x_continuous(labels = scales::percent)
+```
+```{r}
+g <- returns_tech %>%
+    ggplot(aes(date, Tech, color = symbol)) +
+    geom_line() + facet_wrap(~symbol) +
+    theme_tq() + scale_color_tq(theme = "light") +
+    scale_y_continuous(labels = scales::percent) +
+    labs(
+        title = "Monthly Returns of Selected Tech Stocks ",
+        subtitle = " Volatility observed in 2000,and  in 2008/2009",
+        y = "Monthly Returns",
+        x = ""
+    ) + theme(legend.position = "none")
+
+ggplotly(g)
+```
+# We visualize the stock prices to see the trend
+```{r}
+K <- Tech_Prices %>%
+    ggplot(aes(date, adjusted, color = symbol)) +
+    geom_line() + facet_wrap(~symbol, scales = "free_y") +
+    scale_y_continuous(labels = scales::dollar) +
+     theme_tq() + scale_color_tq(theme = "dark") +
+    labs(
+        title = "Stock Prices of selected Tech Stocks",
+        subtitle = " We observe a rising trend ",
+        y = "Adjusted Stock Price",
+        x = ""
+    ) +
+    theme(legend.position = "none")
+    
+    
+ggplotly(K)
+    
+```
+# We use the returns to measure the individual sharpe ratio
+```{r}
+returns_tech %>%
+    group_by(symbol) %>%
+    tq_performance(Ra = Tech,
+                   performance_fun = SharpeRatio.annualized,
+                   scale = 12,
+                   Rf = 0.03/12)  %>%
+    ungroup() %>%
+    mutate(symbol = as.factor(symbol)) %>%
+    mutate(`AnnualizedSharpeRatio(Rf=3%)` = round(`AnnualizedSharpeRatio(Rf=3%)`, 2)) %>%
+    ggplot(aes(symbol, `AnnualizedSharpeRatio(Rf=3%)`, label = `AnnualizedSharpeRatio(Rf=3%)`)) +
+    geom_col(fill = "#2c3e50") +
+    theme_tq() +
+    scale_color_tq(theme = "light") +
+    geom_label(nudge_y = -0.01) +
+    labs(title = "Annualized Sharpe Ratio (RFR = 3%)",
+         subtitle = "IBM has the lowestsharpe ratio while Microsoft has the highest",
+         caption = "Selected Tech Stocks ",
+         y = "Sharpe Ratio",
+         x = "")
+
+```
+# We now create a portfolio for Tech Stocks with equal weighted scheme
+
+# Step 1 using equal weights 
+```{r}
+n <- length(symbols_tech)
+w <- rep(1/n,n)
+wts_tbl <- tibble(symbols_tech,w)
+wts_tbl
+```
+```{r}
+wts_tbl %>% 
+    ggplot(aes(x = "", y = w, fill = symbols_tech)) + 
+    geom_bar(width = 1, stat = "identity") + 
+    coord_polar("y", start = 0) + 
+    theme(axis.text.x = element_blank()) +
+    geom_text(label = scales::percent(w), position = position_stack(vjust = 0.5)) +
+    scale_fill_tq(theme = "light") + 
+    labs(
+         title = "Tech Portfolio",
+         caption = " Equal Weighted"
+         )
+```
+# step 2 now creating portfolio
+```{r}
+port_returns_tbl <- returns_tech %>%
+    group_by(symbol) %>%
+    tq_portfolio(assets_col   = symbol,
+                 returns_col  = Tech,
+                 weights      = wts_tbl,
+                 rebalance_on = "years") %>%
+    add_column(symbol ="Portfolio",.before = 1) %>%
+    rename(Tech = portfolio.returns)
+
+```
+```{r}
+port_returns_tbl 
+```
+```{r}
+combined_tbl <- port_returns_tbl %>%
+    rbind(returns_tech %>% group_by(symbol))
+
+
+    
+```
+```{r}
+end_port_date = last(port_returns_tbl$date)
+combined_tbl %>%
+    ggplot(aes(date, Tech)) +
+    geom_smooth(data = port_returns_tbl,
+                aes(color = symbol),
+                se = FALSE,
+                linetype= "dashed",
+                colour = "blue") +
+    geom_smooth(data = returns_tech,
+                aes(colour = symbol),
+                se = FALSE,
+                linetype= "solid"
+                ) +
+    scale_y_continuous() + theme_tq() + scale_color_tq(theme = "light") +
+    scale_y_continuous(labels = scales::percent) +
+    labs(title = "Monthly Returns of Portfolio vs Individual Stocks",
+         subtitle = "Portfolio is the dashed blue line",
+         y = "Monthly Returns") +
+    annotate(geom = "text",
+             x = end_port_date,
+             y = 0.02,
+             label = "Portfolio",
+             fontface = "plain")
+```
+```{r}
+combined_tbl %>%
+    group_by(symbol) %>%
+    tq_performance(Ra = Tech,
+                   performance_fun = SharpeRatio.annualized,
+                   scale = 12,
+                   Rf = 0.03 / 12) %>% 
+    ungroup() %>%
+    mutate(symbol = as.factor(symbol)) %>%
+    mutate(`AnnualizedSharpeRatio(Rf=3%)` = round(`AnnualizedSharpeRatio(Rf=3%)`, 2)) %>%
+    ggplot(aes(symbol, `AnnualizedSharpeRatio(Rf=3%)`, label = `AnnualizedSharpeRatio(Rf=3%)`)) +
+    geom_col(fill = "#2c3e50") +
+    theme_tq() + scale_color_tq(theme = "light") +
+    geom_label(nudge_y = -0.01) +
+    labs(
+        title = "Annualized Sharpe Ratio",
+        subtitle = "Portfolio has the highest Sharpe Raito ",
+        caption = "Selected Tech Stocks",
+        x ="", y = "Sharpe Ratio"
+    )
+```
+
+# lets see the investment over the period of time, for that we have to add wealth index in the portfolio 
+```{r}
+
+investment_tbl <- returns_tech %>%
+    group_by(symbol) %>%
+    tq_portfolio(
+        assets_col  = symbol,
+        returns_col = Tech,
+        weights     = wts_tbl,
+        wealth.index = TRUE ) %>%
+    mutate(investment_growth = portfolio.wealthindex  * 1000)
+
+    
+```
+#Visualization of Investment growth for our portfolio
+```{r}
+  investment_tbl %>%
+    ggplot(aes(date, investment_growth)) +
+    geom_line(stat = "identity") +
+    theme_tq() + scale_color_tq(theme = "light") +
+    scale_color_tq() +
+    scale_y_continuous(labels = scales::dollar) +
+    labs(
+        title = "Investment Growth of Portfolio for an Investment of $1000",
+        subtitle = "Equal Weight Allocation",
+        caption = "Selected Tech Stocks",
+        x ="",
+        y = "Investment Growth"
+    )
+    
+```
+```{r}
+I <- investment_tbl %>%
+    ggplot(aes(date, investment_growth)) +
+    geom_line(stat = "identity") +
+    theme_tq() + scale_color_tq(theme = "light") +
+    scale_color_tq() +
+    scale_y_continuous(labels = scales::dollar) +
+    labs(
+        title = "Investment Growth of Portfolio for an Investment of $1000",
+        subtitle = "Equal Weighted Portfolio ",
+        caption = "Selected Tech Stocks",
+        x ="",
+        y = "Investment Growth"
+    )
+ggplotly(I)
+```
+```{r}
+w_2 <- c(0.2, 0.2, 0.2, 0.2, 0.2,
+         1, 0, 0, 0, 0,
+         0, 1, 0, 0, 0,
+         0, 0, 1, 0, 0,
+         0, 0, 0, 1, 0,
+         0, 0, 0, 0, 1)
+weights_tbl <- tibble(symbols_tech) %>% 
+    tq_repeat_df(n = 6) %>% 
+    bind_cols(tibble(w_2)) %>%
+    group_by(portfolio)
+```
+```{r}
+weights_tbl %>% 
+    ungroup() %>% 
+    mutate(w_2 = paste0(w_2*100, "%")) %>% 
+    pivot_wider(names_from = symbols_tech, values_from = w_2) %>% 
+    mutate(portfolio = case_when(portfolio == 1 ~ "Tech Portfolio",
+                                 portfolio == 2 ~ "AAPL",
+                                 portfolio == 3 ~ "IBM",
+                                 portfolio == 4 ~ "MSFT",
+                                 portfolio == 5 ~ "ORCL",
+                                 portfolio == 6 ~ "ADBE")) 
+```
+```{r}
+returns_multi_tbl <- returns_tech %>%
+    tq_repeat_df(n = 6)
+
+
+port_investment_tbl <- returns_multi_tbl %>% 
+    tq_portfolio(assets_col = symbol,
+                 returns_col = Tech,
+                 weights = weights_tbl,
+                 wealth.index = TRUE) %>% 
+    mutate(investment.growth = portfolio.wealthindex * 1000)
+```
+```{r}
+port_investment_tbl %>%
+    ungroup() %>% 
+    mutate(portfolio = case_when(portfolio == 1 ~ "Tech Portfolio",
+                                 portfolio == 2 ~ "AAPL",
+                                 portfolio == 3 ~ "IBM",
+                                 portfolio == 4 ~ "MSFT",
+                                 portfolio == 5 ~ "ORCL",
+                                 portfolio == 6 ~ "ADBE")) %>% 
+    mutate(portfolio = as.factor(portfolio)) %>% 
+    ggplot(aes(x = date, y = investment.growth, colour = portfolio)) + 
+    geom_line(stat = "identity") + 
+    theme_tq() + 
+    scale_color_tq() + 
+    scale_y_continuous(labels = scales::dollar) + 
+    labs(title = "Tech Portfolio Growth vs Standalone Security Growth",
+         subtitle = "Equal Weight Allocation",
+         caption = "Selected Stocks",
+         x = "",
+         y = "Investment Growth") +
+    annotate(geom = "text",
+             x = last(port_investment_tbl$date),
+             y = 344000,
+             label = "Portfolio",
+             fontface = "plain")
+```
+# Using high charter
+```{r}
+library(timetk)
+high_chart_xts <- port_investment_tbl %>%
+    ungroup() %>% 
+    mutate(portfolio = case_when(portfolio == 1 ~ "Tech Portfolio",
+                                 portfolio == 2 ~ "AAPL",
+                                 portfolio == 3 ~ "IBM",
+                                 portfolio == 4 ~ "MSFT",
+                                 portfolio == 5 ~ "ORCL",
+                                 portfolio == 6 ~ "ADBE"))%>% 
+    select(-portfolio.wealthindex) %>% 
+    pivot_wider(names_from = portfolio, values_from = investment.growth) %>% 
+    tk_xts(date_var = date,
+           silent = TRUE)
+```
+```{r}
+library(highcharter)
+highchart(type = "stock") %>% 
+    hc_title(text = "Tech Portfolio Growth vs Standalone Security Growth") %>% 
+    hc_add_series(high_chart_xts[, 1], 
+                  name = "Portfolio") %>% 
+    hc_add_series(high_chart_xts[, 2],
+                  name = symbols_tech[1]) %>% 
+    hc_add_series(high_chart_xts[,3],
+                  name = symbols_tech[2]) %>% 
+    hc_add_series(high_chart_xts[,4],
+                  name = symbols_tech[3]) %>% 
+    hc_add_series(high_chart_xts[,5],
+                  name = symbols_tech[4]) %>% 
+    hc_add_series(high_chart_xts[,6],
+                  name = symbols_tech[5]) %>%
+    # hc_tooltip(pointFormat = '{series.name}
+    #            ${point.y:,.0f}')
+    hc_tooltip(pointFormat =
+    "<span style=\"color:{series.color}\">{series.name}</span>:<b>${point.y:,.0f}</b><br/>",
+        shared=TRUE)
+```
+```{r}
+sessionInfo()
+```
+
+
+
+
+
+
+
